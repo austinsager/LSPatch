@@ -1,131 +1,34 @@
-import java.util.Locale
-
-val defaultManagerPackageName: String by rootProject.extra
-val apiCode: Int by rootProject.extra
-val verCode: Int by rootProject.extra
-val verName: String by rootProject.extra
-val coreVerCode: Int by rootProject.extra
-val coreVerName: String by rootProject.extra
-
 plugins {
-    alias(libs.plugins.agp.app)
-    alias(lspatch.plugins.google.devtools.ksp)
-    alias(lspatch.plugins.rikka.tools.refine)
-    alias(lspatch.plugins.kotlin.android)
-    id("kotlin-parcelize")
+    id("com.android.application")
+    id("org.jetbrains.kotlin.android")
+    id("org.jetbrains.kotlin.plugin.compose")
 }
-
 android {
+    namespace = "org.lsposed.lspatch.ui"
+    compileSdk = 35
     defaultConfig {
-        applicationId = defaultManagerPackageName
+        applicationId = "org.lsposed.lspatch"
+        minSdk = 26
+        targetSdk = 35
+        versionCode = 230
+        versionName = "2.3.0-erik-ultimate"
     }
-
-    androidResources {
-        noCompress.add(".so")
-    }
-
-    buildTypes {
-        debug {
-            isMinifyEnabled = true
-            proguardFiles("proguard-rules-debug.pro")
-        }
-        release {
-            isMinifyEnabled = true
-            proguardFiles(
-                getDefaultProguardFile("proguard-android-optimize.txt"),
-                "proguard-rules.pro"
-            )
-        }
-        all {
-            sourceSets[name].assets.srcDirs(rootProject.projectDir.resolve("out/assets/$name"))
-        }
-    }
-
-    kotlinOptions {
-        jvmTarget = "17"
-    }
-
-    kotlin {
-        jvmToolchain(17)
-    }
-
-    buildFeatures {
-        compose = true
-        buildConfig = true
-    }
-
-    composeOptions {
-        kotlinCompilerExtensionVersion = "1.4.7"
-    }
-
-    namespace = "org.lsposed.lspatch"
-
-    applicationVariants.all {
-        kotlin.sourceSets {
-            getByName(name) {
-                kotlin.srcDir("build/generated/ksp/$name/kotlin")
-            }
-        }
-    }
+    compileOptions { sourceCompatibility = JavaVersion.VERSION_21; targetCompatibility = JavaVersion.VERSION_21 }
+    kotlinOptions { jvmTarget = "21" }
+    buildFeatures { compose = true }
 }
-
-afterEvaluate {
-    android.applicationVariants.forEach { variant ->
-        val variantLowered = variant.name.lowercase()
-        val variantCapped = variant.name.replaceFirstChar { it.uppercase() }
-
-        task<Copy>("copy${variantCapped}Assets") {
-            dependsOn(":meta-loader:copy$variantCapped")
-            dependsOn(":patch-loader:copy$variantCapped")
-            tasks["merge${variantCapped}Assets"].dependsOn(this)
-
-            into("$buildDir/intermediates/assets/$variantLowered/merge${variantCapped}Assets")
-            from("${rootProject.projectDir}/out/assets/${variant.name}")
-        }
-
-        task<Copy>("build$variantCapped") {
-            dependsOn(tasks["assemble$variantCapped"])
-            from(variant.outputs.map { it.outputFile })
-            into("${rootProject.projectDir}/out/$variantLowered")
-            rename(".*.apk", "manager-v$verName-$verCode-$variantLowered.apk")
-        }
-    }
-}
-
 dependencies {
-    implementation(projects.patch)
-    implementation(projects.services.daemonService)
-    implementation(projects.share.android)
-    implementation(projects.share.java)
-    implementation(platform(lspatch.androidx.compose.bom))
-
-    annotationProcessor(lspatch.androidx.room.compiler)
-    compileOnly(lspatch.rikka.hidden.stub)
-    debugImplementation(lspatch.androidx.compose.ui.tooling)
-    debugImplementation(lspatch.androidx.customview)
-    debugImplementation(lspatch.androidx.customview.poolingcontainer)
-    implementation(lspatch.androidx.activity.compose)
-    implementation(lspatch.androidx.compose.material.icons.extended)
-    implementation(lspatch.androidx.compose.material3)
-    implementation(lspatch.androidx.compose.ui)
-    implementation(lspatch.androidx.compose.ui.tooling.preview)
-    implementation(lspatch.androidx.core.ktx)
-    implementation(lspatch.androidx.lifecycle.viewmodel.compose)
-    implementation(lspatch.androidx.navigation.compose)
-    implementation(libs.androidx.preference)
-    implementation(lspatch.androidx.room.ktx)
-    implementation(lspatch.androidx.room.runtime)
-    implementation(lspatch.google.accompanist.navigation.animation)
-    implementation(lspatch.google.accompanist.pager)
-    implementation(lspatch.google.accompanist.swiperefresh)
-    implementation(libs.material)
-    implementation(libs.gson)
-    implementation(lspatch.rikka.shizuku.api)
-    implementation(lspatch.rikka.shizuku.provider)
-    implementation(lspatch.rikka.refine)
-    implementation(lspatch.raamcosta.compose.destinations)
-    implementation(libs.appiconloader)
-    implementation(libs.hiddenapibypass)
-    ksp(lspatch.androidx.room.compiler)
-    ksp(lspatch.raamcosta.compose.destinations.ksp)
+    implementation("androidx.core:core-ktx:1.13.1")
+    implementation("androidx.activity:activity-compose:1.9.2")
+    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.6")
+    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.6")
+    implementation(platform("androidx.compose:compose-bom:2024.09.02"))
+    implementation("androidx.compose.ui:ui")
+    implementation("androidx.compose.ui:ui-tooling-preview")
+    implementation("androidx.compose.material3:material3")
+    implementation("androidx.compose.material:material-icons-extended")
+    implementation("dev.rikka.shizuku:api:13.1.5")
+    implementation("dev.rikka.shizuku:provider:13.1.5")
+    implementation(project(":patch-loader"))
+    implementation(project(":core"))
 }
