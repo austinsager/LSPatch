@@ -3,6 +3,7 @@ name: Android CI
 on:
   push:
     branches:
+      - main
       - master
   pull_request:
   workflow_dispatch:
@@ -26,7 +27,7 @@ jobs:
           fetch-depth: 0
 
       - name: Write signing key
-        if: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/master' }}
+        if: ${{ github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master') }}
         shell: bash
         env:
           KEY_STORE: ${{ secrets.KEY_STORE }}
@@ -114,10 +115,7 @@ jobs:
           if-no-files-found: warn
 
       - name: Post to channel
-        # Note: Telegram posting is currently ENABLED.
-        # To DISABLE Telegram posting, append '&& false' to the condition below:
-        # github.ref == 'refs/heads/master' && false
-        if: ${{ github.event_name != 'pull_request' && success() && github.ref == 'refs/heads/master' }}
+        if: ${{ github.event_name != 'pull_request' && success() && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master') && false }}
         shell: bash
         env:
           CHANNEL_ID: ${{ secrets.CHANNEL_ID }}
