@@ -2,7 +2,8 @@ name: Android CI
 
 on:
   push:
-    branches: [ master ]
+    branches:
+      - master
   pull_request:
   workflow_dispatch:
 
@@ -24,14 +25,14 @@ jobs:
           submodules: recursive
           fetch-depth: 0
 
-      - name: Write key
-        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/master'
+      - name: Write signing key
+        if: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/master' }}
+        shell: bash
         env:
           KEY_STORE: ${{ secrets.KEY_STORE }}
           KEY_STORE_PASSWORD: ${{ secrets.KEY_STORE_PASSWORD }}
           ALIAS: ${{ secrets.ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-        shell: bash
         run: |
           if [ -n "$KEY_STORE" ]; then
             {
@@ -42,6 +43,7 @@ jobs:
             } >> gradle.properties
 
             printf '%s' "$KEY_STORE" | base64 --decode > key.jks
+            chmod 600 key.jks
           fi
 
       - name: Setup Java
@@ -61,13 +63,13 @@ jobs:
         with:
           version: 1.12.0
 
-      - name: Remove Android's cmake
+      - name: Remove Android SDK CMake
         shell: bash
         run: rm -rf "$ANDROID_HOME/cmake"
 
       - name: Set short commit id
         shell: bash
-        run: echo "commit=${GITHUB_SHA::7}" >> "$GITHUB_ENV"
+        run: echo "commit=${GITHUB_SHA:0:7}" >> "$GITHUB_ENV"
 
       - name: Build with Gradle
         shell: bash
@@ -85,12 +87,14 @@ jobs:
         with:
           name: lspatch-debug-${{ env.commit }}
           path: out/debug/*
+          if-no-files-found: warn
 
       - name: Upload Release artifact
         uses: actions/upload-artifact@v4
         with:
           name: lspatch-release-${{ env.commit }}
           path: out/release/*
+          if-no-files-found: warn
 
       - name: Upload mappings
         uses: actions/upload-artifact@v4
@@ -99,6 +103,7 @@ jobs:
           path: |
             patch-loader/build/outputs/mapping
             manager/build/outputs/mapping
+          if-no-files-found: warn
 
       - name: Upload symbols
         uses: actions/upload-artifact@v4
@@ -106,9 +111,14 @@ jobs:
           name: symbols-${{ env.commit }}
           path: |
             patch-loader/build/symbols
+          if-no-files-found: warn
 
       - name: Post to channel
-        if: ${{ github.event_name != 'pull_request' && success() && github.ref == 'refs/heads/master' && false }}
+        # Note: Telegram posting is currently ENABLED.
+        # To DISABLE Telegram posting, append '&& false' to the condition below:
+        # github.ref == 'refs/heads/master' && false
+        if: ${{ github.event_name != 'pull_request' && success() && github.ref == 'refs/heads/master' }}
+        shell: bash
         env:
           CHANNEL_ID: ${{ secrets.CHANNEL_ID }}
           DISCUSSION_ID: ${{ secrets.DISCUSSION_ID }}
@@ -116,29 +126,60 @@ jobs:
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
           COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
           COMMIT_URL: ${{ github.event.head_commit.url }}
-        shell: bash
         run: |
           if [ -n "$BOT_TOKEN" ]; then
-            jarRelease="$(find out/release -name "*.jar" | head -n 1)"
-            managerRelease="$(find out/release -name "*.apk" | head -n 1)"
-            jarDebug="$(find out/debug -name "*.jar" | head -n 1)"
-            managerDebug="$(find out/debug -name "*.apk" | head -n 1)"
+            jarRelease="$(find out/release -type f -name "*.jar" | head -n 1)"
+            managerRelease="$(find out/release -type f -name "*.apk" | head -n 1)"
+            jarDebug="$(find out/debug -type f -name "*.jar" | head -n 1)"
+            managerDebug="$(find out/debug -type f -name "*.apk" | head -n 1)"
 
-            ESCAPED="$(python3 -c '
+            if [ -z "$jarRelease" ] || [ -z "$managerRelease" ] || [ -z "$jarDebug" ] || [ -z "$managerDebug" ]; then
+              echo "One or more Telegram upload artifacts were not found."
+              echo "jarRelease=$jarRelease"
+              echo "managerRelease=$managerRelease"
+              echo "jarDebug=$jarDebug"
+              echo "managerDebug=$managerDebug"
+              exit 1
+            fi
+
+            media_json="$(python3 - <<'PY'
 import json
 import os
-import urllib.parse
 
-msg = os.environ["COMMIT_MESSAGE"]
-url = os.environ["COMMIT_URL"]
+msg = os.environ.get("COMMIT_MESSAGE", "")
+url = os.environ.get("COMMIT_URL", "")
 
 caption = msg if len(msg) <= 1024 else url
-print(urllib.parse.quote(json.dumps(caption)))
-')"
 
-            curl -v "https://api.telegram.org/bot${BOT_TOKEN}/sendMediaGroup?chat_id=${CHANNEL_ID}&media=%5B%7B%22type%22%3A%22document%22%2C%22media%22%3A%22attach%3A%2F%2FjarRelease%22%7D%2C%7B%22type%22%3A%22document%22%2C%22media%22%3A%22attach%3A%2F%2FmanagerRelease%22%7D%2C%7B%22type%22%3A%22document%22%2C%22media%22%3A%22attach%3A%2F%2FjarDebug%22%7D%2C%7B%22type%22%3A%22document%22%2C%22media%22%3A%22attach%3A%2F%2FmanagerDebug%22%2C%22caption%22%3A${ESCAPED}%7D%5D" \
-              -F jarRelease="@$jarRelease" \
-              -F managerRelease="@$managerRelease" \
-              -F jarDebug="@$jarDebug" \
-              -F managerDebug="@$managerDebug"
+media = [
+    {
+        "type": "document",
+        "media": "attach://jarRelease",
+    },
+    {
+        "type": "document",
+        "media": "attach://managerRelease",
+    },
+    {
+        "type": "document",
+        "media": "attach://jarDebug",
+    },
+    {
+        "type": "document",
+        "media": "attach://managerDebug",
+        "caption": caption,
+    },
+]
+
+print(json.dumps(media))
+PY
+)"
+
+            curl -v "https://api.telegram.org/bot${BOT_TOKEN}/sendMediaGroup" \
+              -F "chat_id=${CHANNEL_ID}" \
+              -F "media=${media_json}" \
+              -F "jarRelease=@${jarRelease}" \
+              -F "managerRelease=@${managerRelease}" \
+              -F "jarDebug=@${jarDebug}" \
+              -F "managerDebug=@${managerDebug}"
           fi
